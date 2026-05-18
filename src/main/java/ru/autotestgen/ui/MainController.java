@@ -32,6 +32,7 @@ public class MainController {
     @FXML private TextField outputDirField;
 
     @FXML private ComboBox<String> testLevelCombo;
+    @FXML private CheckBox smokeAllSubsystemsCheck;
 
     private final ComboBox<String> siteTypeCombo = new ComboBox<>();
     private final TextField subsystemField = new TextField();
@@ -152,6 +153,13 @@ public class MainController {
             }
             entityListView.setItems(entityNames);
 
+            // Take subsystem name from XML CategoryName ("Logical View::<name>") when present.
+            String xmlSubsystem = currentModel.getSubsystemNameFromCategory();
+            if (!xmlSubsystem.isEmpty()) {
+                subsystemField.setText(xmlSubsystem);
+                log("Подсистема из XML: " + xmlSubsystem);
+            }
+
             log("XML разобран успешно. Найдено сущностей: " + currentModel.getEntities().size()
                     + ", поисков: " + currentModel.getSearches().size());
             statusLabel.setText("XML разобран: " + currentModel.getEntities().size() + " сущностей");
@@ -195,6 +203,8 @@ public class MainController {
             // Test level from ComboBox
             String selectedLevel = testLevelCombo.getSelectionModel().getSelectedItem();
             config.setTestLevel(selectedLevel != null ? selectedLevel.toLowerCase() : "basic");
+            // Smoke-all-subsystems toggle (defaults to checkbox value or true if checkbox not bound)
+            config.setSmokeAllSubsystems(smokeAllSubsystemsCheck == null || smokeAllSubsystemsCheck.isSelected());
 
             TestGenerator generator = new TestGenerator(config);
             generator.generate(currentModel);
@@ -293,12 +303,20 @@ public class MainController {
     private void displayResults(TestRunResult result) {
         ObservableList<TestCaseRow> rows = FXCollections.observableArrayList();
         for (TestCaseResult tcr : result.getResults()) {
+            String message;
+            if (tcr.getFailureMessage() != null && !tcr.getFailureMessage().isEmpty()) {
+                message = tcr.getFailureMessage();
+            } else if (tcr.isPassed() && !tcr.isSkipped()) {
+                message = "✓ Проверено: " + tcr.getMethodName();
+            } else {
+                message = "";
+            }
             rows.add(new TestCaseRow(
                     tcr.getClassName(),
                     tcr.getMethodName(),
                     tcr.isSkipped() ? "SKIP" : (tcr.isPassed() ? "OK" : "FAIL"),
                     tcr.getDurationMs() + " мс",
-                    tcr.getFailureMessage() != null ? tcr.getFailureMessage() : ""
+                    message
             ));
         }
         resultsTable.setItems(rows);

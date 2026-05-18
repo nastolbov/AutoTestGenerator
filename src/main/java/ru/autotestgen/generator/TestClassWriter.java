@@ -31,6 +31,10 @@ public class TestClassWriter {
     }
 
     public void write(EntityObject entity, AppModel model, Path outputDir) throws IOException {
+        write(entity, model, outputDir, null);
+    }
+
+    public void write(EntityObject entity, AppModel model, Path outputDir, String disabledReason) throws IOException {
         String entityClassName = Transliterator.toClassName(entity.getName());
         String testClassName = entityClassName + "Test";
         String pageClassName = entityClassName + "Page";
@@ -72,6 +76,10 @@ public class TestClassWriter {
 
         // Class
         w.writeLine("@TestMethodOrder(MethodOrderer.OrderAnnotation.class)");
+        if (disabledReason != null && !disabledReason.isEmpty()) {
+            w.writeLine("@org.junit.jupiter.api.Disabled(\""
+                + disabledReason.replace("\\", "\\\\").replace("\"", "\\\"") + "\")");
+        }
         w.openBlock("public class " + testClassName + " extends BaseTest");
         w.writeLine();
         w.writeLine("private " + pageClassName + " page;");
@@ -106,7 +114,7 @@ public class TestClassWriter {
         // === SMOKE tests (always generated) ===
 
         // Test 1: Fields are present
-        writeFieldsPresentTest(w, displayProperties);
+        writeFieldsPresentTest(w, displayProperties, entity.getName());
 
         // === BASIC tests (generated for "basic" and "full") ===
         if (isBasicOrFull()) {
@@ -184,23 +192,42 @@ public class TestClassWriter {
         w.writeToFile(dir, testClassName + ".java");
     }
 
-    private void writeFieldsPresentTest(JavaFileWriter w, List<Property> properties) {
+    private void writeFieldsPresentTest(JavaFileWriter w, List<Property> properties, String entityName) {
         int totalCount = 0;
         for (Property prop : properties) {
             if (!isSystemField(prop)) totalCount++;
         }
         w.writeLine("@Test");
         w.writeLine("@Order(1)");
-        w.writeLine("@DisplayName(\"All fields are displayed on the form\")");
+        w.writeLine("@DisplayName(\"\\u041f\\u043e\\u043b\\u044f \\u0444\\u043e\\u0440\\u043c\\u044b '" + entityName + "': \\u043e\\u0436\\u0438\\u0434\\u0430\\u0435\\u0442\\u0441\\u044f " + totalCount + " \\u043f\\u043e\\u043b\\u0435\\u0439\")");
         w.openBlock("void testFieldsPresent()");
         w.writeLine("int foundCount = 0;");
         w.writeLine("int totalCount = " + totalCount + ";");
+        w.writeLine("java.util.List<String> missing = new java.util.ArrayList<>();");
         for (Property prop : properties) {
             if (isSystemField(prop)) continue;
-            // Pass both Russian display name and attr name for flexible detection
-            w.writeLine("if (page.isFieldDisplayed(\"" + prop.getName() + "\", \"" + prop.getAttrName() + "\")) foundCount++;");
+            w.openBlock("if (page.isFieldDisplayed(\"" + prop.getName() + "\", \"" + prop.getAttrName() + "\"))");
+            w.writeLine("foundCount++;");
+            w.closeBlock();
+            w.openBlock("else");
+            w.writeLine("missing.add(\"" + prop.getName().replace("\"", "\\\"") + "\");");
+            w.closeBlock();
         }
         w.writeLine("System.out.println(\"Fields found: \" + foundCount + \" of \" + totalCount);");
+        w.openBlock("if (!missing.isEmpty())");
+        w.writeLine("System.out.println(\"  not found (\" + missing.size() + \"): \" + String.join(\", \", missing));");
+        w.closeBlock();
+        // Soft threshold: navigation is considered OK as long as we found at least one expected
+        // field. Some entities are search-only and expose just a subset of their XML properties
+        // as grid columns / search params; the rest only appear in a per-row "open card" dialog
+        // we don't trigger from a smoke test. Use the "not found" log above to investigate which
+        // properties are missing and whether they belong to a sub-form.
+        w.openBlock("if (totalCount > 0)");
+        w.writeLine("assertTrue(foundCount >= 1,");
+        w.writeLine("    \"0 of \" + totalCount + \" expected fields are visible — \"");
+        w.writeLine("    + \"navigation likely failed entirely. \"");
+        w.writeLine("    + \"For entities reached via 'Найти', check that 'Выполнить поиск' fires and the result grid appears.\");");
+        w.closeBlock();
         w.closeBlock();
         w.writeLine();
     }
